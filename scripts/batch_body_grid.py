@@ -1,110 +1,170 @@
 # batch_body_grid.py
-# MakeHuman Scripting Console script — Option A body-comp grid exporter
 #
-# HOW TO RUN:
-#   1. Launch MakeHuman (see PLAN.md)
-#   2. Hide UI panels as much as possible; set a clean front view
-#   3. Utilities → Scripting → paste this file (or load it)
-#   4. Set SMOKE_TEST = True for a quick 6-image run first
-#   5. Execute tab → Execute
+# Paste into MakeHuman: Utilities > Scripting, then Execute tab > Execute.
 #
-# Outputs PNG screenshots to 02-media/raw/ named:
-#   m{muscle}_f{fat}_{gender}.png
-# e.g. m50_f30_male.png
+# NOTE: MakeHuman runs scripts with exec() inside a function. On Python 3,
+# top-level imports and defs are NOT visible inside functions. Put ALL
+# imports and helpers inside main().
 #
-# MakeHuman "Weight" = survey "fat". Values are 0–100 step 5 → API 0.0–1.0.
+# Output: OUT_DIR/m{muscle}_f{fat}_{gender}_{age}.png
+# Example: m50_f30_male_middle.png
 
-from __future__ import print_function
-import os
-import time
 
-# --- config -----------------------------------------------------------------
-# Absolute path to this project's media/raw folder (edit if your mount differs)
-OUT_DIR = "/Volumes/abdelhag/baseet/body-comp-project/02-media/raw"
+def main():
+    import os
+    import time
+    import gui3d
 
-# True = only a few combos for QA; False = full 21×21×2 = 882 images
-SMOKE_TEST = True
+    # --- config ---
+    OUT_DIR = "/Volumes/abdelhag/baseet/body-comp-project/02-media/raw"
+    SMOKE_TEST = True
+    STEP = 5
+    PAUSE_SEC = 0.12
 
-STEP = 5  # muscle/fat grid step (percent)
-PAUSE_SEC = 0.15  # let mesh/redraw settle before grab
+    ZOOM = 70.0
+    ROT_X = 0.0
+    ROT_Y = 0.0
+    ROT_Z = 0.0
 
-# Fixed camera (front, full body). Tweak after printCameraInfo() once.
-ZOOM = 70.0
-ROT_X = 0.0
-ROT_Y = 0.0
-ROT_Z = 0.0
+    HEIGHT = 0.5
+    PROPORTIONS = 0.5
+    CAUCASIAN = 1.0
+    AFRICAN = 0.0
+    ASIAN = 0.0
 
-# Lock non-varying macros so the grid only changes muscle/weight/gender
-AGE = 0.5          # adult
-HEIGHT = 0.5
-PROPORTIONS = 0.5
-CAUCASIAN = 1.0
-AFRICAN = 0.0
-ASIAN = 0.0
-# ----------------------------------------------------------------------------
+    AGE_GROUPS = [
+        ("young", 25, "young"),
+        ("adult", 35, "middleage"),
+        ("middle", 50, "middleage"),
+        ("older", 65, "old"),
+    ]
+    GENDERS = [
+        ("male", 1.0),
+        ("female", 0.0),
+    ]
 
-def _ensure_out():
-    if not os.path.isdir(OUT_DIR):
-        os.makedirs(OUT_DIR)
-
-def _snap_range():
-    if SMOKE_TEST:
-        # corners + midpoints for quick visual QA
-        return [0, 50, 100], [0, 50, 100]
-    vals = list(range(0, 101, STEP))
-    return vals, vals
-
-def _filename(muscle_pct, fat_pct, gender_name):
-    return "m{0}_f{1}_{2}.png".format(int(muscle_pct), int(fat_pct), gender_name)
-
-def _fix_camera():
-    MHScript.setRotationX(ROT_X)
-    MHScript.setRotationY(ROT_Y)
-    MHScript.setRotationZ(ROT_Z)
-    MHScript.setZoom(ZOOM)
-    MHScript.printCameraInfo()
-
-def _set_body(gender_f, muscle_f, weight_f):
-    """gender_f/muscle_f/weight_f in 0.0–1.0"""
+    mhapi = gui3d.app.mhapi
     human = gui3d.app.selectedHuman
-    # Batch macros once via updateModelingParameters (single applyAllTargets)
-    MHScript.updateModelingParameters({
-        "macrodetails/Gender": gender_f,
-        "macrodetails/Age": AGE,
-        "macrodetails/African": AFRICAN,
-        "macrodetails/Asian": ASIAN,
-        "macrodetails/Caucasian": CAUCASIAN,
-        "macrodetails-universal/Muscle": muscle_f,
-        "macrodetails-universal/Weight": weight_f,
-        "macrodetails-height/Height": HEIGHT,
-        "macrodetails-proportions/BodyProportions": PROPORTIONS,
-    })
+    assets = mhapi.assets
+    locations = mhapi.locations
 
-def run_batch():
-    _ensure_out()
-    muscles, fats = _snap_range()
-    genders = [("male", 1.0), ("female", 0.0)]
+    def ensure_out_dir():
+        if not os.path.isdir(OUT_DIR):
+            os.makedirs(OUT_DIR)
 
-    _fix_camera()
+    def percent_values():
+        if SMOKE_TEST:
+            return [1, 50, 100]
+        return list(range(1, 101, STEP))
 
-    total = len(muscles) * len(fats) * len(genders)
+    def make_filename(muscle, fat, gender, age):
+        return "m%d_f%d_%s_%s.png" % (int(muscle), int(fat), gender, age)
+
+    def fix_camera():
+        MHScript.setRotationX(ROT_X)
+        MHScript.setRotationY(ROT_Y)
+        MHScript.setRotationZ(ROT_Z)
+        MHScript.setZoom(ZOOM)
+
+    def clear_hair():
+        try:
+            equipped = assets.getEquippedHair()
+            if equipped:
+                assets.unequipHair(equipped)
+                return
+        except Exception as err:
+            print("WARN mhapi unequipHair:", err)
+        try:
+            human.setHairProxy(None)
+        except Exception as err:
+            print("WARN setHairProxy(None):", err)
+
+    def skin_path(skin_prefix, gender):
+        folder = "%s_caucasian_%s" % (skin_prefix, gender)
+        filename = "%s_caucasian_%s.mhmat" % (skin_prefix, gender)
+        return "data/skins/%s/%s" % (folder, filename)
+
+    def apply_skin(skin_prefix, gender):
+        rel = skin_path(skin_prefix, gender)
+        try:
+            MHScript.setMaterial(rel)
+            return
+        except Exception as err:
+            print("WARN setMaterial relative failed (%s): %s" % (rel, err))
+        try:
+            abs_path = locations.getSystemDataPath(
+                "skins/%s_caucasian_%s/%s_caucasian_%s.mhmat"
+                % (skin_prefix, gender, skin_prefix, gender)
+            )
+            MHScript.setMaterial(abs_path)
+        except Exception as err:
+            print("WARN setMaterial absolute failed: %s" % err)
+
+    def age_years_to_slider(years):
+        years = float(years)
+        if years < 25.0:
+            return (years - 1.0) / ((25.0 - 1.0) * 2.0)
+        return ((years - 25.0) / ((90.0 - 25.0) * 2.0)) + 0.5
+
+    def set_body(gender_value, muscle_value, fat_value, age_years):
+        MHScript.updateModelingParameters({
+            "macrodetails/Gender": gender_value,
+            "macrodetails/Age": age_years_to_slider(age_years),
+            "macrodetails/African": AFRICAN,
+            "macrodetails/Asian": ASIAN,
+            "macrodetails/Caucasian": CAUCASIAN,
+            "macrodetails-universal/Muscle": muscle_value,
+            "macrodetails-universal/Weight": fat_value,
+            "macrodetails-height/Height": HEIGHT,
+            "macrodetails-proportions/BodyProportions": PROPORTIONS,
+        })
+
+    ensure_out_dir()
+    muscles = percent_values()
+    fats = percent_values()
+    clear_hair()
+    fix_camera()
+
+    total = len(muscles) * len(fats) * len(GENDERS) * len(AGE_GROUPS)
     done = 0
-    print("BATCH start → {0}  ({1} images, smoke={2})".format(OUT_DIR, total, SMOKE_TEST))
+    age_labels = [item[0] for item in AGE_GROUPS]
 
-    for gender_name, gender_f in genders:
-        for m in muscles:
-            for f in fats:
-                muscle_f = m / 100.0
-                weight_f = f / 100.0
-                _set_body(gender_f, muscle_f, weight_f)
-                time.sleep(PAUSE_SEC)
-                path = os.path.join(OUT_DIR, _filename(m, f, gender_name))
-                MHScript.screenShot(path)
-                done += 1
-                if done % 10 == 0 or done == total:
-                    print("  {0}/{1}  last={2}".format(done, total, path))
+    print("BATCH out=%s" % OUT_DIR)
+    print(
+        "smoke=%s step=%s total=%s ages=%s"
+        % (SMOKE_TEST, STEP, total, age_labels)
+    )
 
-    print("BATCH done. Wrote {0} PNGs to {1}".format(done, OUT_DIR))
-    print("Next: set SMOKE_TEST=False for full grid, then compress in Phase 2.")
+    for age_name, age_years, skin_prefix in AGE_GROUPS:
+        for gender_name, gender_value in GENDERS:
+            apply_skin(skin_prefix, gender_name)
+            clear_hair()
+            for muscle in muscles:
+                for fat in fats:
+                    set_body(
+                        gender_value,
+                        muscle / 100.0,
+                        fat / 100.0,
+                        age_years,
+                    )
+                    time.sleep(PAUSE_SEC)
+                    out_path = os.path.join(
+                        OUT_DIR,
+                        make_filename(muscle, fat, gender_name, age_name),
+                    )
+                    MHScript.screenShot(out_path)
+                    done += 1
+                    if done % 25 == 0 or done == total:
+                        print(
+                            "%d/%d %s"
+                            % (done, total, os.path.basename(out_path))
+                        )
 
-run_batch()
+    print("DONE wrote %d PNGs to %s" % (done, OUT_DIR))
+    if SMOKE_TEST:
+        print("QA smoke images, then set SMOKE_TEST=False and run again.")
+    else:
+        print("Full grid finished. Next: compress to webp (Phase 2).")
+
+
+main()

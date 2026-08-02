@@ -34,7 +34,8 @@ Runs `upstream/makehuman/makehuman/makehuman.py` with this folder’s `.venv`.
 
 ## Batch export
 
-In MakeHuman: Utilities → Scripting → load `scripts/batch_body_grid.py`.  
-Outputs PNGs to `../02-media/raw/` (`SMOKE_TEST=True` by default).
+Step-by-step: **[EXPORT-HOWTO.md](EXPORT-HOWTO.md)**
 
-See root `PLAN.md` for the full Option A plan.
+In MakeHuman: Utilities → Scripting → paste `scripts/batch_body_grid.py` → Execute.  
+Grid: muscle × fat × gender × 4 ages; Caucasian; bald; age-matched skins.  
+Outputs to `../02-media/raw/` (`SMOKE_TEST=True` first).
